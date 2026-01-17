@@ -30,7 +30,7 @@ fi
 # use their own versions.
 export WINE_VERSION="${WINE_VERSION:-latest}"
 
-# Available branches: vanilla, staging, proton, staging-tkg, staging-tkg-ntsync
+# Available branches: vanilla, staging, proton, staging-tkg, staging-tkg-fsync
 export WINE_BRANCH="${WINE_BRANCH:-staging}"
 
 # Available proton branches: proton_3.7, proton_3.16, proton_4.2, proton_4.11
@@ -38,7 +38,7 @@ export WINE_BRANCH="${WINE_BRANCH:-staging}"
 # proton_7.0, experimental_7.0, proton_8.0, experimental_8.0, experimental_9.0
 # bleeding-edge
 # Leave empty to use the default branch.
-export PROTON_BRANCH="${PROTON_BRANCH:-proton_9.0}"
+export PROTON_BRANCH="${PROTON_BRANCH:-proton_10.0}"
 
 # Sometimes Wine and Staging versions don't match (for example, 5.15.2).
 # Leave this empty to use Staging version that matches the Wine version.
@@ -78,7 +78,7 @@ export DO_NOT_COMPILE="false"
 # Make sure that ccache is installed before enabling this.
 export USE_CCACHE="false"
 
-export WINE_BUILD_OPTIONS="--without-ldap --without-oss --disable-winemenubuilder --disable-win16 --disable-tests"
+export WINE_BUILD_OPTIONS="--without-oss --disable-winemenubuilder --disable-tests"
 
 # A temporary directory where the Wine source code will be stored.
 # Do not set this variable to an existing non-empty directory!
@@ -206,15 +206,11 @@ if [ -n "${CUSTOM_SRC_PATH}" ]; then
 
 	WINE_VERSION="$(cat wine/VERSION | tail -c +14)"
 	BUILD_NAME="${WINE_VERSION}"-custom
-elif [ "$WINE_BRANCH" = "staging-tkg" ] || [ "$WINE_BRANCH" = "staging-tkg-ntsync" ]; then
-	if [ "$WINE_BRANCH" = "staging-tkg" ] && [ "${EXPERIMENTAL_WOW64}" = "true" ]; then
-		git clone https://github.com/Kron4ek/wine-tkg wine -b wow64
+elif [ "$WINE_BRANCH" = "staging-tkg" ] || [ "$WINE_BRANCH" = "staging-tkg-fsync" ]; then
+	if [ "$WINE_BRANCH" = "staging-tkg" ]; then
+		git clone https://github.com/Kron4ek/wine-tkg wine
 	else
-		if [ "$WINE_BRANCH" = "staging-tkg" ]; then
-			git clone https://github.com/Kron4ek/wine-tkg wine
-		else
-			git clone https://github.com/Kron4ek/wine-tkg wine -b ntsync
-		fi
+		git clone https://github.com/Kron4ek/wine-tkg wine -b fsync
 	fi
 
 	WINE_VERSION="$(cat wine/VERSION | tail -c +14)"
@@ -225,6 +221,8 @@ elif [ "$WINE_BRANCH" = "proton" ]; then
 	else
 		git clone https://github.com/ValveSoftware/wine -b "${PROTON_BRANCH}"
 	fi
+
+ 	patch -d wine -Np1 < "${scriptdir}"/proton-opencl.patch
 
 	WINE_VERSION="$(cat wine/VERSION | tail -c +14)-$(git -C wine rev-parse --short HEAD)"
 	if [[ "${PROTON_BRANCH}" == "experimental_"* ]] || [ "${PROTON_BRANCH}" = "bleeding-edge" ]; then
@@ -244,6 +242,8 @@ else
 		tar xf "wine-${WINE_VERSION}.tar.xz"
 		mv "wine-${WINE_VERSION}" wine
 	fi
+
+	# patch -d wine -Np1 < "${scriptdir}"/ntsync-fix-32-bit-processes.patch && echo "Applied fix for 32-bit processes for NTSYNC"
 
 	if [ "${WINE_BRANCH}" = "staging" ]; then
 		if [ "${WINE_VERSION}" = "git" ]; then
@@ -374,14 +374,14 @@ else
 	result_dir="${HOME}"
 fi
 
-export XZ_OPT="-9"
+export XZ_OPT="-9 -T 0"
+
+builds_list="wine-${BUILD_NAME}-x86 wine-${BUILD_NAME}-amd64"
 
 if [ "${EXPERIMENTAL_WOW64}" = "true" ]; then
-	mv wine-${BUILD_NAME}-amd64 wine-${BUILD_NAME}-amd64-wow64
+	cp -r wine-${BUILD_NAME}-amd64 wine-${BUILD_NAME}-amd64-wow64
 
-	builds_list="wine-${BUILD_NAME}-amd64-wow64"
-else
-	builds_list="wine-${BUILD_NAME}-x86 wine-${BUILD_NAME}-amd64"
+	builds_list="${builds_list} wine-${BUILD_NAME}-amd64-wow64"
 fi
 
 for build in ${builds_list}; do
@@ -390,13 +390,13 @@ for build in ${builds_list}; do
 			cp wine/wine-tkg-config.txt "${build}"
 		fi
 
-		if [ "${EXPERIMENTAL_WOW64}" = "true" ]; then
+		if [ "${build}" = "wine-${BUILD_NAME}-amd64-wow64" ]; then
   			if [ -f "${build}"/bin/wine64 ]; then
-				rm "${build}"/bin/wine "${build}"/bin/wine-preloader
+				rm -f "${build}"/bin/wine "${build}"/bin/wine-preloader
 				cp "${build}"/bin/wine64 "${build}"/bin/wine
-    			else
-       				rm "${build}"/lib/wine/i386-unix/wine "${build}"/lib/wine/i386-unix/wine-preloader
-	   		fi
+			fi
+
+	   		rm -rf "${build}"/lib/wine/i386-unix
 		fi
 
 		tar -Jcf "${build}".tar.xz "${build}"

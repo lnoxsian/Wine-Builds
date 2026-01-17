@@ -1,4 +1,4 @@
-name: Wine Stable
+name: Wine Stable CI
 
 on:
   schedule:
